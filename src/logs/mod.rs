@@ -1,17 +1,17 @@
+use chrono::{DateTime, Utc};
+
+use crate::common::traits::LogTrait;
+
 mod filter;
-mod source;
 
 pub struct Log {
-    date_time: String,
+    date_time: DateTime<Utc>,
     data: String,
-    source: source::Source,
-    date_format: Option<String>,
+    source_name: String,
 }
 
-impl Log {
-    fn get_date_format(&self) -> String {
-        self.date_format
-            .clone()
-            .unwrap_or_else(|| "%Y-%m-%d %H:%M:%S %z".to_string())
+impl LogTrait for Log {
+    fn get_date(&self) -> DateTime<Utc> {
+        return self.date_time;
     }
 }

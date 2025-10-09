@@ -4,9 +4,9 @@ use std::{
     io::{self, BufRead},
 };
 
-use crate::common::Filter;
+use crate::common::traits::Filter;
 
-pub async fn read_line_from_start(
+pub async fn read_lines_from_start(
     path: String,
     limit: usize,
     offset: usize,
@@ -52,14 +52,14 @@ mod test {
 
     use std::io::{self, Write};
 
-    use crate::common::Filter;
-    use crate::reader::file::read_line_from_start;
+    use crate::common::traits::Filter;
+    use crate::reader::file::read_lines_from_start;
     use tempdir::TempDir;
 
     #[tokio::test]
     async fn read_error() {
         let random_path = random_str::get_string(6, true, false, true, true);
-        let res = read_line_from_start(random_path, 1, 1, None);
+        let res = read_lines_from_start(random_path, 1, 1, None);
         assert!(res.await.is_err())
     }
 
@@ -70,7 +70,7 @@ mod test {
             TempDir::new(&random_path).expect("Не получилось создать временную директорию");
         let file_path = tmp_dir.path().join("test.log");
         File::create(&file_path).expect("Не удалось создать временный файл");
-        let res = read_line_from_start(file_path.to_str().unwrap().to_string(), 0, 0, None)
+        let res = read_lines_from_start(file_path.to_str().unwrap().to_string(), 0, 0, None)
             .await
             .expect("Не удалось прочитать временный файл");
         assert_eq!(res.len(), 0)
@@ -87,7 +87,7 @@ mod test {
         writeln!(tmp_file, "test-2").expect("Не удалось записать строку в файл");
         let file_path = file_path.to_str().unwrap().to_string();
 
-        let res = read_line_from_start(file_path, 3, 0, None)
+        let res = read_lines_from_start(file_path, 3, 0, None)
             .await
             .expect("Не удалось прочитать временный файл");
         assert_eq!(res.len(), 2)
@@ -109,7 +109,7 @@ mod test {
             search: "test".to_string(),
         };
 
-        let res = read_line_from_start(file_path, 3, 0, Some(vec![Box::new(f)]))
+        let res = read_lines_from_start(file_path, 3, 0, Some(vec![Box::new(f)]))
             .await
             .expect("Не удалось прочитать временный файл");
         assert_eq!(res.len(), 2)
@@ -131,7 +131,7 @@ mod test {
             search: "test".to_string(),
         };
 
-        let res = read_line_from_start(file_path, 3, 1, Some(vec![Box::new(f)]))
+        let res = read_lines_from_start(file_path, 3, 1, Some(vec![Box::new(f)]))
             .await
             .expect("Не удалось прочитать временный файл");
         assert_eq!(res.len(), 1)

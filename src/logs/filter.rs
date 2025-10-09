@@ -2,7 +2,7 @@ use chrono::DateTime;
 use chrono::Utc;
 use regex::Regex;
 
-use crate::common::Filter;
+use crate::common::traits::Filter;
 
 pub struct DateFilter {
     date_format: String,
