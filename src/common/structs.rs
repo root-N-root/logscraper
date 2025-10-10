@@ -1,9 +1,26 @@
+use tokio::sync::mpsc::{UnboundedSender, error::SendError};
+
 use super::*;
+
+pub struct Stream {
+    batch: Batch,
+    tx: UnboundedSender<Vec<String>>,
+}
+
+impl Stream {
+    pub fn new(batch: Batch, tx: UnboundedSender<Vec<String>>) -> Self {
+        Self { batch, tx }
+    }
+
+    pub async fn send(&self, logs: Vec<String>) -> Result<(), SendError<Vec<String>>> {
+        self.tx.send(logs)
+    }
+}
 
 pub struct Batch {
     size: usize,
     order: enums::Order,
-    sources: Vec<Source>,
+    sources: Vec<Source>, //TODO:: HashMap<Source.path.path: Source>
     filters: Vec<Box<dyn traits::Filter>>,
 }
 
@@ -13,7 +30,7 @@ impl Batch {
         order: enums::Order,
         sources: Option<Vec<Source>>,
         filters: Option<Vec<Box<dyn traits::Filter>>>,
-    ) -> Batch {
+    ) -> Self {
         let s = sources.unwrap_or(Vec::new());
         let f = filters.unwrap_or(Vec::new());
         Self {
@@ -39,6 +56,18 @@ impl Batch {
         self.filters.len()
     }
 
+    pub fn get_paths(&self) -> Vec<String> {
+        let mut paths = vec![];
+        for source in self.sources.iter() {
+            paths.push(source.get_path());
+        }
+        return paths;
+    }
+
+    pub fn get_filters(&self) -> Vec<Box<dyn traits::Filter>> {
+        return vec![];
+    }
+
     pub fn sort(&self, logs: &mut Vec<Box<dyn traits::LogTrait>>) {
         match self.order {
             enums::Order::OrderByDate => logs.sort_by(|a, b| a.get_date().cmp(&b.get_date())),
@@ -55,8 +84,17 @@ pub struct Source {
 }
 
 impl Source {
-    fn get_name(&self) -> String {
+    pub fn new(path: String, name: String) -> Self {
+        Self {
+            path: Path { path, name },
+            size: None,
+        }
+    }
+    pub fn get_name(&self) -> String {
         self.path.name.clone()
+    }
+    pub fn get_path(&self) -> String {
+        self.path.path.clone()
     }
 }
 

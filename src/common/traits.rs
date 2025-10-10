@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 
-pub trait Filter {
+pub trait Filter: Send {
     fn is_include(&self, line: &String) -> bool;
 }
 

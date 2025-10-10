@@ -1,11 +1,10 @@
-use chrono::{DateTime, Utc};
 pub mod enums;
 pub mod structs;
 pub mod traits;
 
 #[cfg(test)]
 mod test {
-    use std::str::FromStr;
+    use chrono::{DateTime, Utc};
 
     use super::*;
 
