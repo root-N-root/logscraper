@@ -4,13 +4,13 @@ use std::{
     io::{self, BufRead},
 };
 
-use crate::common::traits::Filter;
+use crate::common::enums::Filter;
 
 pub async fn read_lines_from_start(
     path: String,
     limit: usize,
     offset: usize,
-    filters: Option<Vec<Box<dyn Filter>>>,
+    filters: Option<Vec<Filter>>,
 ) -> Result<Vec<String>, Box<dyn Error>> {
     let file = File::open(path)?; // Чтобы вернуть ошибку даже при limit = 0
 
@@ -52,7 +52,8 @@ mod test {
 
     use std::io::{self, Write};
 
-    use crate::common::traits::Filter;
+    use crate::common::enums::Filter;
+    use crate::common::structs::SearchFilter;
     use crate::reader::file::read_lines_from_start;
     use tempdir::TempDir;
 
@@ -105,11 +106,11 @@ mod test {
         writeln!(tmp_file, "test-3").expect("Не удалось записать строку в файл");
         let file_path = file_path.to_str().unwrap().to_string();
 
-        let f = MockFilter {
-            search: "test".to_string(),
-        };
+        let f = Filter::Search(SearchFilter {
+            substr: "test".to_string(),
+        });
 
-        let res = read_lines_from_start(file_path, 3, 0, Some(vec![Box::new(f)]))
+        let res = read_lines_from_start(file_path, 3, 0, Some(vec![f]))
             .await
             .expect("Не удалось прочитать временный файл");
         assert_eq!(res.len(), 2)
@@ -127,23 +128,13 @@ mod test {
         writeln!(tmp_file, "test-3").expect("Не удалось записать строку в файл");
         let file_path = file_path.to_str().unwrap().to_string();
 
-        let f = MockFilter {
-            search: "test".to_string(),
-        };
+        let f = Filter::Search(SearchFilter {
+            substr: "test".to_string(),
+        });
 
-        let res = read_lines_from_start(file_path, 3, 1, Some(vec![Box::new(f)]))
+        let res = read_lines_from_start(file_path, 3, 1, Some(vec![f]))
             .await
             .expect("Не удалось прочитать временный файл");
         assert_eq!(res.len(), 1)
-    }
-
-    struct MockFilter {
-        search: String,
-    }
-
-    impl Filter for MockFilter {
-        fn is_include(&self, line: &String) -> bool {
-            line.contains(&self.search)
-        }
     }
 }

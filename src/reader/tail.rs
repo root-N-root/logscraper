@@ -1,100 +1,170 @@
-use std::{fs, io::Error, os, path};
+use std::{collections::HashMap, error::Error, fs, path::PathBuf};
 
-use linemux::MuxedLines;
-use tokio::sync::mpsc::UnboundedSender;
+use notify::{Event, EventKind, Watcher, recommended_watcher};
+use tokio::{
+    fs::File,
+    io::{AsyncBufReadExt, AsyncSeekExt, AsyncWriteExt, BufReader},
+    sync::mpsc::{self},
+};
 
-use crate::common::structs::Batch;
+use crate::common::structs::Stream;
 
-pub async fn read_tail(batch: Batch, tx: UnboundedSender<Vec<String>>) {
-    let mut lines = MuxedLines::new().unwrap();
+#[derive(Debug)]
+struct TrackedFile {
+    reader: BufReader<File>,
+    position: u64,
+}
 
-    for path in batch.get_paths().iter() {
-        let _ = fs::metadata(&path).unwrap();
-        lines.add_file(&path).await.unwrap();
-    }
-    // tx.send(vec!["TEST".to_string()]).unwrap();
+pub async fn tail(stream: Stream) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let paths: Vec<PathBuf> = stream.batch.get_paths().iter().map(PathBuf::from).collect();
 
-    //TODO::: command for stop
-    while let Ok(Some(line)) = lines.next_line().await {
-        tx.send(vec!["TEST".to_string()]).unwrap();
-        let log_txt = &line.line().to_string();
-        // TODO:: match Command -> close tx and exit, update filters
-        //
-        //LINE has source --- add limit by source (after pack in Vec with timer)
-        if batch.get_filters().iter().all(|f| f.is_include(&log_txt)) {
-            continue;
+    let (notify_tx, mut notify_rx) = mpsc::unbounded_channel::<PathBuf>();
+
+    let mut watcher = recommended_watcher(move |res: Result<Event, _>| {
+        if let Ok(event) = res {
+            if matches!(event.kind, EventKind::Modify(_)) {
+                for path in event.paths {
+                    let _ = notify_tx.send(path);
+                }
+            }
         }
-        tx.send(vec![log_txt.clone()]).unwrap();
+    })?;
+    //TODO:: test use notify_tx --- lifecycle with move to closure
+
+    let mut tracked_files: HashMap<PathBuf, TrackedFile> = HashMap::new();
+    for path in &paths {
+        let metadata = fs::metadata(path).unwrap();
+        watcher.watch(path, notify::RecursiveMode::NonRecursive)?;
+
+        let file = File::open(path).await?;
+        // let metadata = file.metadata().await?;
+
+        let mut reader = BufReader::new(file);
+        let size = metadata.len();
+
+        //GO to end
+        reader.seek(std::io::SeekFrom::Start(size)).await?;
+        tracked_files.insert(
+            path.clone(),
+            TrackedFile {
+                reader,
+                position: size,
+            },
+        );
     }
+
+    loop {
+        tokio::select! {
+            Some(changed_path) = notify_rx.recv() => {
+
+                if let Some(tracked) = tracked_files.get_mut(&changed_path) {
+                    read_new_lines(&mut tracked.reader, &mut tracked.position, &stream).await?;
+                }
+            }
+        }
+    }
+}
+
+async fn read_new_lines(
+    reader: &mut BufReader<File>,
+    position: &mut u64,
+    stream: &Stream,
+) -> Result<(), std::io::Error> {
+    let mut buf = String::new();
+    loop {
+        let bytes_read = reader.read_line(&mut buf).await?;
+
+        if bytes_read == 0 {
+            break;
+        }
+
+        if !buf.ends_with('\n') {
+            break;
+        }
+
+        let line = buf.trim_end_matches('\n').to_string();
+        *position += bytes_read as u64;
+
+        if let Err(err) = stream.send(line).await {
+            eprintln!("Error sending to stream: {:?}", err);
+        }
+        buf.clear();
+    }
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use std::io::{self, Write};
-    use std::time::Duration;
-    use std::{fmt::Debug, fs::File};
-
+    use std::{
+        io::{self, Write},
+        time::Duration,
+    };
     use tempdir::TempDir;
     use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
-    use crate::common::structs::Source;
+    use crate::common::structs::{Batch, Source};
 
     use super::*;
 
     #[tokio::test]
     #[should_panic]
-    async fn test_tail_error_wrong_path() {
+    async fn test_live_tail_error_path() {
         let random_path = random_str::get_string(6, true, false, true, true);
 
-        let batch = Batch::new(
-            1,
-            crate::common::enums::Order::OrderByDate,
-            Some(vec![Source::new(random_path, "test".to_string())]),
-            None,
+        let (tx, mut rx) = unbounded_channel::<String>();
+        let stream = Stream::new(
+            Batch::new(
+                1,
+                crate::common::enums::Order::OrderByDate,
+                Some(vec![Source::new(random_path, "test".to_string())]),
+                None,
+            ),
+            tx,
         );
-        let (tx, mut rx): (UnboundedSender<Vec<String>>, UnboundedReceiver<Vec<String>>) =
-            unbounded_channel();
-
-        let _ = tokio::spawn(read_tail(batch, tx)).await.unwrap();
+        let _ = tokio::spawn(tail(stream)).await.unwrap();
     }
 
-    #[tokio::test(start_paused = true)]
-    async fn test_read_one_file() {
+    #[tokio::test]
+    async fn test_live_tail_success() {
         let random_path = random_str::get_string(6, true, false, true, true);
-
-        let tmp_dir =
-            TempDir::new(&random_path).expect("Не получилось создать временную директорию");
+        let tmp_dir = TempDir::new(&random_path).expect("не удалось создать временную директорию");
         let file_path = tmp_dir.path().join("test.log");
-        let mut tmp_file = File::create(&file_path).expect("Не удалось создать временный файл");
+        std::fs::write(&file_path, "").unwrap();
 
-        let file_path = file_path.to_str().unwrap().to_string();
-        let batch = Batch::new(
-            1,
-            crate::common::enums::Order::OrderByDate,
-            Some(vec![Source::new(file_path, "test".to_string())]),
-            None,
+        let (tx, mut rx) = unbounded_channel::<String>();
+        let stream = Stream::new(
+            Batch::new(
+                1,
+                crate::common::enums::Order::OrderByDate,
+                Some(vec![Source::new(
+                    file_path.to_str().unwrap().to_string(),
+                    "test".to_string(),
+                )]),
+                None,
+            ),
+            tx,
         );
-        let (tx, mut rx): (UnboundedSender<Vec<String>>, UnboundedReceiver<Vec<String>>) =
-            unbounded_channel();
-
-        let _ = tokio::spawn(async move {
-            read_tail(batch, tx).await;
+        let handle = tokio::spawn(async move {
+            let _ = tail(stream).await;
         });
 
-        writeln!(tmp_file, "test-1").expect("Не удалось записать строку в файл");
-        //TODO:: set timeout and send closeCh
-        // tokio::time::sleep(Duration::from_secs(12)).await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
 
-        tokio::select! {
-            logs = rx.recv() => {
-                assert_eq!(logs.unwrap().len(), 1);
-            }
-            _ = tokio::time::sleep(Duration::from_secs(5)) => {
-                    assert_eq!(false, true);
-            }
-        }
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&file_path)
+            .unwrap();
 
-        let logs = rx.try_recv().unwrap();
-        assert_eq!(logs[0], "TEST");
+        writeln!(f, "new test log").unwrap();
+        drop(f);
+
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let msg = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(msg, "new test log");
+        handle.abort();
     }
 }

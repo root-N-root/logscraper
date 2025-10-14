@@ -1,7 +1,7 @@
 mod common;
-mod logs;
+// mod filters;
+mod memory;
 mod reader;
-mod stream;
 mod tui;
 
 fn main() {
