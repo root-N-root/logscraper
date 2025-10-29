@@ -7,6 +7,12 @@ use crate::common::enums::Filter;
 
 use super::*;
 
+#[derive(Serialize, Deserialize)]
+pub struct Memory {
+    pub paths: Vec<Path>,
+    pub filters: Vec<Filter>,
+}
+
 #[derive(Clone)]
 pub struct Log {
     pub date_time: DateTime<Utc>,
@@ -50,6 +56,7 @@ pub struct Batch {
     order: enums::Order,
     sources: Vec<Source>, //TODO:: HashMap<Source.path.path: Source>
     filters: Vec<Filter>,
+    offset: Option<usize>,
 }
 
 impl Batch {
@@ -58,14 +65,16 @@ impl Batch {
         order: enums::Order,
         sources: Option<Vec<Source>>,
         filters: Option<Vec<Filter>>,
+        offset: Option<usize>,
     ) -> Self {
         let s = sources.unwrap_or(Vec::new());
         let f = filters.unwrap_or(Vec::new());
         Self {
-            size: size,
-            order: order,
+            size,
+            order,
             sources: s,
             filters: f,
+            offset,
         }
     }
 

@@ -118,6 +118,7 @@ mod tests {
                 crate::common::enums::Order::OrderByDate,
                 Some(vec![Source::new(random_path, "test".to_string())]),
                 None,
+                None,
             ),
             tx,
         );
@@ -140,6 +141,7 @@ mod tests {
                     file_path.to_str().unwrap().to_string(),
                     "test".to_string(),
                 )]),
+                None,
                 None,
             ),
             tx,

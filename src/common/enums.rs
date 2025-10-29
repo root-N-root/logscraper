@@ -4,6 +4,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::common::structs::{DateFilter, RegexFilter, SearchFilter};
 
+pub enum Mode {
+    Page,
+    Tail,
+    Stopped,
+}
+
 pub enum Order {
     OrderByDate,
     OrderByDateReverse,
@@ -50,3 +56,8 @@ impl Filter {
 }
 
 //TODO:: self error : https://docs.rs/thiserror/latest/thiserror/
+#[derive(Debug)]
+pub enum MemoryError {
+    FSError,
+    SerdeError,
+}

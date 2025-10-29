@@ -12,7 +12,7 @@ mod test {
 
     #[test]
     fn test_sort_empty() {
-        let b = structs::Batch::new(10, enums::Order::OrderByDate, None, None);
+        let b = structs::Batch::new(10, enums::Order::OrderByDate, None, None, None);
         let mut logs: Vec<structs::Log> = Vec::new();
         b.sort(&mut logs);
         assert_eq!(logs.len(), 0)
@@ -20,7 +20,7 @@ mod test {
 
     #[test]
     fn test_sort_normal_order() {
-        let b = structs::Batch::new(10, enums::Order::OrderByDate, None, None);
+        let b = structs::Batch::new(10, enums::Order::OrderByDate, None, None, None);
         let mut logs: Vec<structs::Log> = vec![
             structs::Log {
                 date_time: DateTime::parse_from_str(
@@ -53,7 +53,7 @@ mod test {
 
     #[test]
     fn test_sort_reverse_order() {
-        let b = structs::Batch::new(10, enums::Order::OrderByDateReverse, None, None);
+        let b = structs::Batch::new(10, enums::Order::OrderByDateReverse, None, None, None);
         let mut logs: Vec<structs::Log> = vec![
             structs::Log {
                 date_time: DateTime::parse_from_str(
@@ -86,7 +86,7 @@ mod test {
 
     #[test]
     fn test_batch_push_source() {
-        let mut b = structs::Batch::new(10, enums::Order::OrderByDate, None, None);
+        let mut b = structs::Batch::new(10, enums::Order::OrderByDate, None, None, None);
         let p = structs::Path::new("test".to_string(), "test".to_string());
         b.add_path(p);
 

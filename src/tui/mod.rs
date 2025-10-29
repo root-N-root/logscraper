@@ -1,13 +1,22 @@
+use std::io;
+
 use ratatui::{
-    Frame,
-    layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Style},
-    text::{Line, Span, Text},
-    widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
+    Frame, Terminal,
+    crossterm::event::{self, Event},
+    prelude::Backend,
 };
 
-mod app;
+pub mod app;
+pub mod ui;
 
-pub fn ui(frame: &mut Frame, app: &app::App) {
-    todo!();
+pub fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut app::App) -> io::Result<bool> {
+    loop {
+        terminal.draw(|frame| ui::ui(frame, app))?;
+        if let Event::Key(key) = event::read()? {
+            if key.kind == event::KeyEventKind::Release {
+                continue;
+            }
+            app.handle(key.code);
+        }
+    }
 }

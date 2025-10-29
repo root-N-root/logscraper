@@ -13,6 +13,7 @@ notify = "8.2.0"
 futures-util = "0.3.31"
 serde = {version = "1.0", features = ["derive"]}
 serde_json = "1.0"
+thiserror = "2.0.17"
 
 [dev-dependencies]
 random_str = "0.1.2"
