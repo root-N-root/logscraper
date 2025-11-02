@@ -9,7 +9,6 @@ use crate::common::enums::{Mode, Order};
 use crate::common::structs::Memory;
 
 pub struct App {
-    //TODO
     pub cur_screen: Screen,
     pub cur_modal: Option<Modal>,
     pub cur_order: Order,
@@ -20,11 +19,19 @@ pub struct App {
     pub logs: Vec<String>,
     pub rx: UnboundedReceiver<String>,
     pub memory: Memory,
-    // Fields for managing modal states
-    pub selected_index: Option<usize>, // Index of selected item in modal lists
-    pub editing_mode: bool,            // Whether we're currently editing an item
-    pub edit_buffer: String,           // Buffer for text input during editing
-    pub filter_type: FilterType,       // Current filter type when adding/editing filters
+    // Поля для управления состоянием модальных окон
+    pub selected_index: Option<usize>, // Индекс выбранного элемента в списках модальных окон
+    pub editing_mode: bool,            // Находится ли приложение в режиме редактирования
+    pub edit_buffer: String,           // Буфер для ввода текста во время редактирования
+    pub filter_type: FilterType,       // Тип фильтра при добавлении/редактировании фильтров
+    // Поля для управления загрузкой логов
+    pub needs_refresh: bool,           // Нужно ли обновить логи
+    // Поля для отслеживания изменений
+    pub last_order: Order,             // Последняя настройка сортировки 
+    pub last_mode: Mode,               // Последняя настройка режима
+    pub last_size: usize,              // Последний размер страницы
+    pub last_paths_count: usize,       // Последнее количество путей
+    pub last_filters_count: usize,     // Последнее количество фильтров
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -36,12 +43,15 @@ pub enum FilterType {
 
 impl App {
     pub fn new(rx: UnboundedReceiver<String>, memory: Memory) -> App {
+        let paths_count = memory.paths.len();
+        let filters_count = memory.filters.len();
+        
         App {
             cur_screen: Screen::Main,
             cur_modal: None,
             cur_order: Order::OrderByDate,
             cur_mode: Mode::Page,
-            cur_size: 10,
+            cur_size: 30,
             exit_approved: false,
             cur_page: 1,
             logs: Vec::new(),
@@ -51,47 +61,52 @@ impl App {
             editing_mode: false,
             edit_buffer: String::new(),
             filter_type: FilterType::Search,
+            needs_refresh: true, // Обновляем логи при первом отображении
+            last_order: Order::OrderByDate,
+            last_mode: Mode::Page,
+            last_size: 30,
+            last_paths_count: paths_count,
+            last_filters_count: filters_count,
         }
     }
     pub fn handle_additional(&mut self, key: KeyCode) {
         if self.editing_mode {
-            // Handle text input when in editing mode
+            // Обрабатываем ввод текста в режиме редактирования
             match key {
                 KeyCode::Enter => {
                     // Save the edited value
-                    if let (Some(modal), Some(index)) = (&self.cur_modal, self.selected_index) {
-                        match modal {
+                    if let (Some(_modal), Some(index)) = (&self.cur_modal, self.selected_index) {
+                        match _modal {
                             Modal::Path => {
                                 if index < self.memory.paths.len() {
-                                    // For now, just update the path field with the edit_buffer
-                                    // In a real implementation, you'd want separate fields for path and name
+
                                     let updated_path = crate::common::structs::Path::new(
-                                        self.edit_buffer.clone(), 
-                                        self.edit_buffer.clone() // Using same value for name as placeholder
+                                        self.edit_buffer.clone(),
+                                        self.edit_buffer.clone(),
                                     );
                                     let _ = self.memory.update_path(index, updated_path);
                                 }
                             }
                             Modal::Filter => {
                                 if index < self.memory.filters.len() {
-                                    // For now, just update based on current filter type
+
                                     let updated_filter = match self.filter_type {
                                         FilterType::Search => crate::common::enums::Filter::Search(
                                             crate::common::structs::SearchFilter {
                                                 substr: self.edit_buffer.clone(),
-                                            }
+                                            },
                                         ),
                                         FilterType::Regex => crate::common::enums::Filter::Regex(
                                             crate::common::structs::RegexFilter {
                                                 pattern: self.edit_buffer.clone(),
-                                            }
+                                            },
                                         ),
                                         FilterType::Date => {
-                                            // Date filters are more complex, using a placeholder
+
                                             crate::common::enums::Filter::Search(
                                                 crate::common::structs::SearchFilter {
                                                     substr: self.edit_buffer.clone(),
-                                                }
+                                                },
                                             )
                                         }
                                     };
@@ -114,6 +129,37 @@ impl App {
                     self.editing_mode = false;
                     self.edit_buffer.clear();
                 }
+                KeyCode::Tab => {
+                    if let (Some(_modal), Some(index)) = (&self.cur_modal, self.selected_index) {
+                        if index < self.memory.filters.len() {
+                            let updated_filter = match self.filter_type {
+                                FilterType::Search => crate::common::enums::Filter::Regex(
+                                    crate::common::structs::RegexFilter {
+                                        pattern: self.edit_buffer.clone(),
+                                    },
+                                ),
+                                FilterType::Regex => crate::common::enums::Filter::Date(
+                                    crate::common::structs::DateFilter {
+                                        date_format: "".to_string(),
+                                        date_start: None,
+                                        date_finish: None,
+                                    },
+                                ),
+                                FilterType::Date => crate::common::enums::Filter::Search(
+                                    crate::common::structs::SearchFilter {
+                                        substr: self.edit_buffer.clone(),
+                                    },
+                                ),
+                            };
+                            let _ = self.memory.update_filter(index, updated_filter);
+                            self.filter_type = match self.filter_type {
+                                FilterType::Search => FilterType::Regex,
+                                FilterType::Regex => FilterType::Date,
+                                FilterType::Date => FilterType::Search,
+                            }
+                        }
+                    }
+                }
                 _ => {}
             }
             return; // Return early to avoid other processing while editing
@@ -132,7 +178,10 @@ impl App {
                 match self.cur_modal {
                     Some(Modal::Path) => {
                         // Add a new empty path
-                        self.memory.add_path(crate::common::structs::Path::new("".to_string(), "".to_string()));
+                        self.memory.add_path(crate::common::structs::Path::new(
+                            "".to_string(),
+                            "".to_string(),
+                        ));
                         // Select the newly added item
                         self.selected_index = Some(self.memory.paths.len().saturating_sub(1));
                     }
@@ -141,7 +190,7 @@ impl App {
                         let new_filter = crate::common::enums::Filter::Search(
                             crate::common::structs::SearchFilter {
                                 substr: "".to_string(),
-                            }
+                            },
                         );
                         self.memory.add_filter(new_filter);
                         // Select the newly added item
@@ -158,7 +207,8 @@ impl App {
                             if index < self.memory.paths.len() {
                                 let _ = self.memory.remove_path(index);
                                 // Adjust selected index if needed
-                                if index >= self.memory.paths.len() && !self.memory.paths.is_empty() {
+                                if index >= self.memory.paths.len() && !self.memory.paths.is_empty()
+                                {
                                     self.selected_index = Some(self.memory.paths.len() - 1);
                                 } else if self.memory.paths.is_empty() {
                                     self.selected_index = None;
@@ -171,7 +221,9 @@ impl App {
                             if index < self.memory.filters.len() {
                                 let _ = self.memory.remove_filter(index);
                                 // Adjust selected index if needed
-                                if index >= self.memory.filters.len() && !self.memory.filters.is_empty() {
+                                if index >= self.memory.filters.len()
+                                    && !self.memory.filters.is_empty()
+                                {
                                     self.selected_index = Some(self.memory.filters.len() - 1);
                                 } else if self.memory.filters.is_empty() {
                                     self.selected_index = None;
@@ -230,8 +282,8 @@ impl App {
             }
             KeyCode::Enter => {
                 // Enter editing mode for the selected item
-                if let (Some(modal), Some(index)) = (&self.cur_modal, self.selected_index) {
-                    match modal {
+                if let (Some(_modal), Some(index)) = (&self.cur_modal, self.selected_index) {
+                    match _modal {
                         Modal::Path => {
                             if index < self.memory.paths.len() {
                                 // Set edit buffer to current path value
@@ -301,6 +353,10 @@ impl App {
                 self.cur_order = match self.cur_order {
                     Order::OrderByDate => Order::OrderByDateReverse,
                     Order::OrderByDateReverse => Order::OrderByDate,
+                };
+                // Mark that logs need to be refreshed when back in Page mode
+                if self.cur_mode == Mode::Page {
+                    self.needs_refresh = true;
                 }
             }
             KeyCode::Char('m') => {
@@ -308,11 +364,18 @@ impl App {
                     Mode::Page => Mode::Tail,
                     Mode::Tail => Mode::Page,
                     Mode::Stopped => Mode::Page,
+                };
+                // Refresh logs when switching to Page mode
+                if self.cur_mode == Mode::Page {
+                    self.needs_refresh = true;
                 }
             }
             KeyCode::Enter => {
-                //TODO:: search by mode:
-                //Page (offset = cur_size * cur_page)
+                // Reload logs based on current mode:
+                // Page mode: reload with current page and size settings
+                if self.cur_mode == Mode::Page {
+                    self.load_page_logs();
+                }
             }
             //Mode::Tail
 
@@ -321,14 +384,31 @@ impl App {
                 match self.cur_mode {
                     Mode::Page => {
                         match key {
-                            KeyCode::Char('j') => {
-                                //TODO:: new search
-                                self.cur_page += 1
+                            KeyCode::Char('+') => {
+                                // Increase page size
+                                self.cur_size = std::cmp::min(self.cur_size.saturating_add(5), 1000);
+                                if self.cur_mode == Mode::Page {
+                                    self.needs_refresh = true;
+                                }
                             }
-
+                            KeyCode::Char('-') => {
+                                // Decrease page size
+                                self.cur_size = std::cmp::max(self.cur_size.saturating_sub(5), 5);
+                                if self.cur_mode == Mode::Page {
+                                    self.needs_refresh = true;
+                                }
+                            }
+                            KeyCode::Char('j') => {
+                                // Next page
+                                self.cur_page += 1;
+                                self.load_page_logs();
+                            }
                             KeyCode::Char('h') => {
-                                //TODO:: new search
-                                self.cur_page -= 1
+                                // Previous page, but not below 1
+                                if self.cur_page > 1 {
+                                    self.cur_page -= 1;
+                                }
+                                self.load_page_logs();
                             }
                             _ => {}
                         }
@@ -336,7 +416,7 @@ impl App {
                     Mode::Tail => {
                         match key {
                             KeyCode::Char(' ') => {
-                                //TODO:: stop stream
+                                // Stop stream
                                 self.cur_mode = Mode::Stopped;
                             }
                             _ => {}
@@ -345,7 +425,7 @@ impl App {
                     Mode::Stopped => {
                         match key {
                             KeyCode::Char(' ') => {
-                                //TODO:: start stream
+                                // Start stream
                                 self.cur_mode = Mode::Tail;
                             }
                             _ => {}
@@ -367,6 +447,12 @@ impl App {
             self.logs.push(log);
         }
     }
+
+    pub fn load_page_logs(&mut self) {
+        // Для корректной загрузки нужной страницы, устанавливаем флаг обновления
+        // и система в run_app сама загрузит нужные логи с учетом cur_page
+        self.needs_refresh = true;
+    }
 }
 
 pub enum Screen {
@@ -376,7 +462,7 @@ pub enum Screen {
 }
 
 impl Screen {
-    pub fn keys_hint(&self) -> Span {
+    pub fn keys_hint(&self) -> Span<'_> {
         match self {
             Screen::Main => Span::styled(
                 "(q) - quit / (f/p) - add [filter/path] / (o/m) - change [order/mode]",
@@ -409,7 +495,7 @@ impl Modal {
 }
 
 impl Mode {
-    pub fn nav_text(&self) -> Span {
+    pub fn nav_text(&self) -> Span<'_> {
         match self {
             Mode::Page => Span::styled("Page Mode", Style::default().fg(Color::Green)),
             Mode::Tail => Span::styled("Tail Mode", Style::default().fg(Color::Yellow)),
@@ -419,7 +505,7 @@ impl Mode {
 }
 
 impl Order {
-    pub fn order_text(&self) -> Span {
+    pub fn order_text(&self) -> Span<'_> {
         match self {
             Order::OrderByDate => Span::styled("ASC Order", Style::default().fg(Color::Blue)),
             Order::OrderByDateReverse => {

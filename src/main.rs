@@ -8,7 +8,7 @@ use ratatui::{
     prelude::CrosstermBackend,
 };
 use std::io;
-use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
+use tokio::sync::mpsc::unbounded_channel;
 
 use crate::{common::structs::Memory, tui::app::App};
 
@@ -25,13 +25,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let backend = CrosstermBackend::new(stderr);
     let mut terminal = Terminal::new(backend)?;
 
-    let (tx, mut rx) = unbounded_channel::<String>();
+    let (tx, rx) = unbounded_channel::<String>();
 
     // Load memory (paths and filters)
     let memory = Memory::load()?;
 
     let mut app = App::new(rx, memory);
-    let res = tui::run_app(&mut terminal, &mut app).await?;
+    tui::run_app(&mut terminal, &mut app, tx).await?;
     disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),

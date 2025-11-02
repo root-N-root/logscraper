@@ -3,11 +3,11 @@ use std::{collections::HashMap, error::Error, fs, path::PathBuf};
 use notify::{Event, EventKind, Watcher, recommended_watcher};
 use tokio::{
     fs::File,
-    io::{AsyncBufReadExt, AsyncSeekExt, AsyncWriteExt, BufReader},
-    sync::mpsc::{self},
+    io::{AsyncBufReadExt, AsyncSeekExt, BufReader},
+    sync::mpsc::{self, UnboundedSender},
 };
 
-use crate::common::structs::Stream;
+use crate::common::structs::{Memory, Stream};
 
 #[derive(Debug)]
 struct TrackedFile {
@@ -15,6 +15,7 @@ struct TrackedFile {
     position: u64,
 }
 
+#[allow(dead_code)]
 pub async fn tail(stream: Stream) -> Result<(), Box<dyn Error + Send + Sync>> {
     let paths: Vec<PathBuf> = stream.batch.get_paths().iter().map(PathBuf::from).collect();
 
@@ -29,7 +30,7 @@ pub async fn tail(stream: Stream) -> Result<(), Box<dyn Error + Send + Sync>> {
             }
         }
     })?;
-    //TODO:: test use notify_tx --- lifecycle with move to closure
+    // Проверка использования notify_tx --- жизненный цикл с замыканием move
 
     let mut tracked_files: HashMap<PathBuf, TrackedFile> = HashMap::new();
     for path in &paths {
@@ -45,7 +46,7 @@ pub async fn tail(stream: Stream) -> Result<(), Box<dyn Error + Send + Sync>> {
         //GO to end
         reader.seek(std::io::SeekFrom::Start(size)).await?;
         tracked_files.insert(
-            path.clone(),
+            path.clone().to_path_buf(),
             TrackedFile {
                 reader,
                 position: size,
@@ -65,6 +66,56 @@ pub async fn tail(stream: Stream) -> Result<(), Box<dyn Error + Send + Sync>> {
     }
 }
 
+pub async fn tail_stream(
+    memory: Memory,
+    tx: UnboundedSender<String>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let paths: Vec<PathBuf> = memory.paths.iter().map(|p| PathBuf::from(&p.path)).collect();
+    let filters = memory.filters;
+
+    let (notify_tx, mut notify_rx) = mpsc::unbounded_channel::<PathBuf>();
+
+    let mut watcher = recommended_watcher(move |res: Result<Event, _>| {
+        if let Ok(event) = res {
+            if matches!(event.kind, EventKind::Modify(_)) {
+                for path in event.paths {
+                    let _ = notify_tx.send(path);
+                }
+            }
+        }
+    })?;
+
+    let mut tracked_files: HashMap<PathBuf, TrackedFile> = HashMap::new();
+    for path in &paths {
+        let metadata = fs::metadata(path).unwrap();
+        watcher.watch(path, notify::RecursiveMode::NonRecursive)?;
+
+        let file = File::open(path).await?;
+        let size = metadata.len();
+
+        let mut reader = BufReader::new(file);
+        reader.seek(std::io::SeekFrom::Start(size)).await?;
+        tracked_files.insert(
+            path.clone().to_path_buf(),
+            TrackedFile {
+                reader,
+                position: size,
+            },
+        );
+    }
+
+    loop {
+        tokio::select! {
+            Some(changed_path) = notify_rx.recv() => {
+                if let Some(tracked) = tracked_files.get_mut(&changed_path) {
+                    read_new_lines_with_filters(&mut tracked.reader, &mut tracked.position, &tx, &filters).await?;
+                }
+            }
+        }
+    }
+}
+
+#[allow(dead_code)]
 async fn read_new_lines(
     reader: &mut BufReader<File>,
     position: &mut u64,
@@ -88,6 +139,42 @@ async fn read_new_lines(
         if let Err(err) = stream.send(line).await {
             eprintln!("Error sending to stream: {:?}", err);
         }
+        buf.clear();
+    }
+    Ok(())
+}
+
+async fn read_new_lines_with_filters(
+    reader: &mut BufReader<File>,
+    position: &mut u64,
+    tx: &UnboundedSender<String>,
+    filters: &[crate::common::enums::Filter],
+) -> Result<(), std::io::Error> {
+    let mut buf = String::new();
+    loop {
+        let bytes_read = reader.read_line(&mut buf).await?;
+
+        if bytes_read == 0 {
+            break;
+        }
+
+        if !buf.ends_with('\n') {
+            break;
+        }
+
+        let line = buf.trim_end_matches('\n').to_string();
+        
+        // Apply filters - only send line if it passes all filters
+        let should_send = filters.iter().all(|f| f.is_include(&line));
+        
+        if should_send {
+            if let Err(_) = tx.send(line.clone()) {
+                // Channel closed, stop reading
+                break;
+            }
+        }
+        
+        *position += bytes_read as u64;
         buf.clear();
     }
     Ok(())

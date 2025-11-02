@@ -5,6 +5,7 @@ use std::{
 };
 
 use crate::common::enums::Filter;
+use crate::common::structs::Path;
 
 pub async fn read_lines_from_start(
     path: String,
@@ -14,7 +15,9 @@ pub async fn read_lines_from_start(
 ) -> Result<Vec<String>, Box<dyn Error>> {
     let file = File::open(path)?; // Чтобы вернуть ошибку даже при limit = 0
 
-    let mut lines = Vec::with_capacity(limit); // Чтобы сразу выйти при limit = 0
+    // Ограничиваем начальную ёмкость вектора, чтобы избежать переполнения
+    let initial_capacity = std::cmp::min(limit, 1000);
+    let mut lines = Vec::with_capacity(initial_capacity);
 
     if limit < 1 {
         return Ok(lines);
@@ -44,6 +47,53 @@ pub async fn read_lines_from_start(
         }
     }
     Ok(lines)
+}
+
+use crate::common::enums::Order;
+
+pub async fn read_from_paths(
+    paths: Vec<Path>,
+    limit: usize,
+    offset: usize,
+    filters: Option<Vec<Filter>>,
+    order: Order,
+) -> Result<Vec<String>, Box<dyn Error>> {
+    let mut all_lines = Vec::new();
+
+    for path in paths {
+        let mut file_lines = read_lines_from_start(
+            path.path,
+            usize::MAX, // Read all lines from this file
+            0, // No offset at file level
+            filters.clone(),
+        ).await?;
+        
+        all_lines.append(&mut file_lines);
+    }
+
+    // Apply sorting based on order
+    match order {
+        Order::OrderByDate => {
+            // For date ascending, we can sort the strings if they start with date
+            // This is a simple approach - if logs start with date in sortable format like ISO 8601
+            all_lines.sort();
+        }
+        Order::OrderByDateReverse => {
+            // For date descending, sort then reverse
+            all_lines.sort();
+            all_lines.reverse();
+        }
+    }
+
+    // Apply the overall limit and offset to the combined results
+    let start = offset;
+    let end = (offset + limit).min(all_lines.len());
+    
+    if start < all_lines.len() {
+        Ok(all_lines[start..end].to_vec())
+    } else {
+        Ok(Vec::new())
+    }
 }
 
 #[cfg(test)]

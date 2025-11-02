@@ -1,4 +1,6 @@
 use std::fs::read_dir;
+
+#[allow(dead_code)]
 pub fn find_files(path: String) -> Vec<String> {
     let mut list = Vec::new();
     for entry in read_dir(path).unwrap() {

@@ -12,12 +12,13 @@ use crate::common::{
 
 use super::*;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Memory {
     pub paths: Vec<Path>,
     pub filters: Vec<Filter>,
 }
 
+#[allow(dead_code)]
 impl Memory {
     pub fn load() -> Result<Memory, MemoryError> {
         if !StdPath::new(MEMORY_FILE).exists() {
@@ -92,17 +93,20 @@ impl Memory {
 }
 
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct Log {
     pub date_time: DateTime<Utc>,
     pub data: String,
     pub source_name: String,
 }
 
+#[allow(dead_code)]
 pub struct Stream {
     pub batch: Batch,
     tx: Option<UnboundedSender<String>>,
 }
 
+#[allow(dead_code)]
 impl Stream {
     pub fn new(batch: Batch, tx: UnboundedSender<String>) -> Self {
         Self {
@@ -129,14 +133,16 @@ impl Stream {
     }
 }
 
+#[allow(dead_code)]
 pub struct Batch {
     size: usize,
     order: enums::Order,
-    sources: Vec<Source>, //TODO:: HashMap<Source.path.path: Source>
+    sources: Vec<Source>,
     filters: Vec<Filter>,
     offset: Option<usize>,
 }
 
+#[allow(dead_code)]
 impl Batch {
     pub fn new(
         size: usize,
@@ -180,7 +186,7 @@ impl Batch {
     }
 
     pub fn get_filters(&self) -> Vec<Filter> {
-        return vec![];
+        self.filters.clone()
     }
 
     pub fn sort(&self, logs: &mut Vec<Log>) {
@@ -191,11 +197,13 @@ impl Batch {
     }
 }
 
+#[allow(dead_code)]
 pub struct Source {
     path: Path,
     size: Option<usize>,
 }
 
+#[allow(dead_code)]
 impl Source {
     pub fn new(path: String, name: String) -> Self {
         Self {
@@ -211,7 +219,7 @@ impl Source {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Path {
     pub path: String,
     pub name: String,
@@ -223,7 +231,7 @@ impl Path {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct DateFilter {
     pub date_format: String,
     #[serde(with = "option_datetime_utc")]
@@ -232,12 +240,12 @@ pub struct DateFilter {
     pub date_finish: Option<DateTime<Utc>>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct RegexFilter {
     pub pattern: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct SearchFilter {
     pub substr: String,
 }

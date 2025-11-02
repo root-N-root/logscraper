@@ -22,19 +22,21 @@ impl fmt::Display for MemoryError {
 
 impl Error for MemoryError {}
 
+#[derive(PartialEq, Clone)]
 pub enum Mode {
     Page,
     Tail,
     Stopped,
 }
 
+#[derive(PartialEq, Clone)]
 pub enum Order {
     OrderByDate,
     OrderByDateReverse,
 }
 
-//TODO:: filters to one mod
-#[derive(Serialize, Deserialize)]
+// Фильтры в один модуль
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(tag = "type")]
 pub enum Filter {
     Date(DateFilter),
