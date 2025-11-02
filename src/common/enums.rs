@@ -1,8 +1,26 @@
+use std::{error::Error, fmt};
+
 use chrono::{DateTime, Utc};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 use crate::common::structs::{DateFilter, RegexFilter, SearchFilter};
+
+#[derive(Debug)]
+pub enum MemoryError {
+    FSError,
+    SerdeError,
+}
+impl fmt::Display for MemoryError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            MemoryError::FSError => write!(f, "File system error"),
+            MemoryError::SerdeError => write!(f, "Serialization/deserialization error"),
+        }
+    }
+}
+
+impl Error for MemoryError {}
 
 pub enum Mode {
     Page,
@@ -53,11 +71,4 @@ impl Filter {
             Filter::Search(f) => line.contains(&f.substr),
         }
     }
-}
-
-//TODO:: self error : https://docs.rs/thiserror/latest/thiserror/
-#[derive(Debug)]
-pub enum MemoryError {
-    FSError,
-    SerdeError,
 }

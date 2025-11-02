@@ -1,9 +1,14 @@
 use chrono::{DateTime, Utc};
+use std::fs;
+use std::path::Path as StdPath;
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::{UnboundedSender, error::SendError};
 
-use crate::common::enums::Filter;
+use crate::common::{
+    constants::MEMORY_FILE,
+    enums::{Filter, MemoryError},
+};
 
 use super::*;
 
@@ -11,6 +16,79 @@ use super::*;
 pub struct Memory {
     pub paths: Vec<Path>,
     pub filters: Vec<Filter>,
+}
+
+impl Memory {
+    pub fn load() -> Result<Memory, MemoryError> {
+        if !StdPath::new(MEMORY_FILE).exists() {
+            return Ok(Memory {
+                paths: Vec::new(),
+                filters: Vec::new(),
+            });
+        }
+
+        let json = fs::read_to_string(MEMORY_FILE).map_err(|_| MemoryError::FSError)?;
+        let data: Memory = serde_json::from_str(&json).map_err(|_| MemoryError::SerdeError)?;
+        Ok(data)
+    }
+
+    pub fn save(&self) -> Result<(), MemoryError> {
+        let json = serde_json::to_string(self).map_err(|_| MemoryError::SerdeError)?;
+        fs::write(MEMORY_FILE, json).map_err(|_| MemoryError::FSError)?;
+        Ok(())
+    }
+
+    pub fn add_filter(&mut self, filter: Filter) {
+        self.filters.push(filter);
+    }
+
+    pub fn add_path(&mut self, path: Path) {
+        self.paths.push(path);
+    }
+
+    pub fn remove_filter(&mut self, index: usize) -> Result<(), MemoryError> {
+        if index < self.filters.len() {
+            self.filters.remove(index);
+            Ok(())
+        } else {
+            Err(MemoryError::FSError) // Index out of bounds
+        }
+    }
+
+    pub fn remove_path(&mut self, index: usize) -> Result<(), MemoryError> {
+        if index < self.paths.len() {
+            self.paths.remove(index);
+            Ok(())
+        } else {
+            Err(MemoryError::FSError) // Index out of bounds
+        }
+    }
+
+    pub fn get_paths(&self) -> &Vec<Path> {
+        &self.paths
+    }
+
+    pub fn get_filters(&self) -> &Vec<Filter> {
+        &self.filters
+    }
+
+    pub fn update_path(&mut self, index: usize, path: Path) -> Result<(), MemoryError> {
+        if index < self.paths.len() {
+            self.paths[index] = path;
+            Ok(())
+        } else {
+            Err(MemoryError::FSError) // Index out of bounds
+        }
+    }
+
+    pub fn update_filter(&mut self, index: usize, filter: Filter) -> Result<(), MemoryError> {
+        if index < self.filters.len() {
+            self.filters[index] = filter;
+            Ok(())
+        } else {
+            Err(MemoryError::FSError) // Index out of bounds
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -135,8 +213,8 @@ impl Source {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Path {
-    path: String,
-    name: String,
+    pub path: String,
+    pub name: String,
 }
 
 impl Path {

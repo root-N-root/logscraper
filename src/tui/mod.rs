@@ -9,14 +9,21 @@ use ratatui::{
 pub mod app;
 pub mod ui;
 
-pub fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut app::App) -> io::Result<bool> {
+pub async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut app::App) -> io::Result<bool> {
     loop {
         terminal.draw(|frame| ui::ui(frame, app))?;
-        if let Event::Key(key) = event::read()? {
-            if key.kind == event::KeyEventKind::Release {
-                continue;
+        if event::poll(std::time::Duration::from_millis(1000))? {
+            if let Event::Key(key) = event::read()? {
+                if key.kind == event::KeyEventKind::Release {
+                    continue;
+                }
+                app.handle(key.code);
+                if app.exit_approved {
+                    return Ok(true);
+                }
             }
-            app.handle(key.code);
         }
+        // Update logs from the channel
+        app.update_logs();
     }
 }
