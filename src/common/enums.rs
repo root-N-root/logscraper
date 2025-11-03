@@ -54,14 +54,32 @@ impl Filter {
                     Err(_) => return false,
                 };
 
-                if let Some(start) = f.date_start {
-                    if parsed_date < start {
-                        return false;
+                match f.filter_type {
+                    crate::common::structs::DateFilterType::Before => {
+                        if let Some(end) = f.date_finish {
+                            if parsed_date > end {
+                                return false;
+                            }
+                        }
                     }
-                }
-                if let Some(end) = f.date_finish {
-                    if parsed_date > end {
-                        return false;
+                    crate::common::structs::DateFilterType::After => {
+                        if let Some(start) = f.date_start {
+                            if parsed_date < start {
+                                return false;
+                            }
+                        }
+                    }
+                    crate::common::structs::DateFilterType::Between => {
+                        if let Some(start) = f.date_start {
+                            if parsed_date < start {
+                                return false;
+                            }
+                        }
+                        if let Some(end) = f.date_finish {
+                            if parsed_date > end {
+                                return false;
+                            }
+                        }
                     }
                 }
                 true

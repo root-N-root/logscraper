@@ -238,6 +238,14 @@ pub struct DateFilter {
     pub date_start: Option<DateTime<Utc>>,
     #[serde(with = "option_datetime_utc")]
     pub date_finish: Option<DateTime<Utc>>,
+    pub filter_type: DateFilterType,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub enum DateFilterType {
+    Before,
+    After, 
+    Between,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

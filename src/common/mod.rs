@@ -136,6 +136,7 @@ mod test {
             date_format: "%Y-%m-%dT%H:%M:%S%z".to_string(),
             date_start: Some(date.with_timezone(&Utc)),
             date_finish: None,
+            filter_type: structs::DateFilterType::After, // После даты в будущем, строка не включается
         });
         let line = "2022-01-08T11:27:44+09:00 test line in log".to_string();
         assert_eq!(f.is_include(&line), false)
@@ -150,6 +151,7 @@ mod test {
             date_format: "%Y-%m-%dT%H:%M:%S%z".to_string(),
             date_finish: Some(date.with_timezone(&Utc)),
             date_start: None,
+            filter_type: structs::DateFilterType::Before, // До даты в прошлом, строка не включается
         });
         let line = "2022-01-08T11:27:44+09:00 test line in log".to_string();
         assert_eq!(f.is_include(&line), false)
@@ -168,6 +170,7 @@ mod test {
             date_format: "%Y-%m-%dT%H:%M:%S%z".to_string(),
             date_start: Some(date_start.with_timezone(&Utc)),
             date_finish: Some(date_finish.with_timezone(&Utc)),
+            filter_type: structs::DateFilterType::Between, // Между двумя датами в прошлом, строка не включается
         });
         let line = "2022-01-08T11:27:44+09:00 test line in log".to_string();
         assert_eq!(f.is_include(&line), false)
@@ -179,6 +182,7 @@ mod test {
             date_format: "%Y-%m-%dT%H:%M:%S%z".to_string(),
             date_start: None,
             date_finish: None,
+            filter_type: structs::DateFilterType::Between, // Без ограничений, строка включается
         });
         let line = "2022-01-08T11:27:44+09:00 test line in log".to_string();
         assert_eq!(f.is_include(&line), true)
@@ -196,6 +200,7 @@ mod test {
             date_format: "%Y-%m-%dT%H:%M:%S%z".to_string(),
             date_start: Some(date_start.with_timezone(&Utc)),
             date_finish: Some(date_finish.with_timezone(&Utc)),
+            filter_type: structs::DateFilterType::Between, // Между двумя датами, строка включается
         });
         let line = "2022-01-08T11:27:44+09:00 test line in log".to_string();
         assert_eq!(f.is_include(&line), true)

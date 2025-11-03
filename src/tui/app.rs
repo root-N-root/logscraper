@@ -24,6 +24,10 @@ pub struct App {
     pub editing_mode: bool,            // Находится ли приложение в режиме редактирования
     pub edit_buffer: String,           // Буфер для ввода текста во время редактирования
     pub filter_type: FilterType,       // Тип фильтра при добавлении/редактировании фильтров
+    pub date_filter_type: crate::common::structs::DateFilterType, // Тип датового фильтра (до/после/между)
+    pub date_start_buffer: String,     // Буфер для ввода начальной даты
+    pub date_finish_buffer: String,    // Буфер для ввода конечной даты
+    pub editing_date_field: DateField, // Поле, которое в данный момент редактируется
     // Поля для управления загрузкой логов
     pub needs_refresh: bool,           // Нужно ли обновить логи
     // Поля для отслеживания изменений
@@ -60,6 +64,10 @@ impl App {
             selected_index: None,
             editing_mode: false,
             edit_buffer: String::new(),
+            date_filter_type: crate::common::structs::DateFilterType::Between,
+            date_start_buffer: String::new(),
+            date_finish_buffer: String::new(),
+            editing_date_field: DateField::None,
             filter_type: FilterType::Search,
             needs_refresh: true, // Обновляем логи при первом отображении
             last_order: Order::OrderByDate,
@@ -102,10 +110,29 @@ impl App {
                                             },
                                         ),
                                         FilterType::Date => {
-
-                                            crate::common::enums::Filter::Search(
-                                                crate::common::structs::SearchFilter {
-                                                    substr: self.edit_buffer.clone(),
+                                            // Для датового фильтра парсим даты из буферов
+                                            let date_start = if !self.date_start_buffer.is_empty() {
+                                                chrono::DateTime::parse_from_str(&self.date_start_buffer, "%Y-%m-%dT%H:%M:%S%z")
+                                                    .map(|dt| dt.with_timezone(&chrono::Utc))
+                                                    .ok()
+                                            } else {
+                                                None
+                                            };
+                                            
+                                            let date_finish = if !self.date_finish_buffer.is_empty() {
+                                                chrono::DateTime::parse_from_str(&self.date_finish_buffer, "%Y-%m-%dT%H:%M:%S%z")
+                                                    .map(|dt| dt.with_timezone(&chrono::Utc))
+                                                    .ok()
+                                            } else {
+                                                None
+                                            };
+                                            
+                                            crate::common::enums::Filter::Date(
+                                                crate::common::structs::DateFilter {
+                                                    date_format: "%Y-%m-%dT%H:%M:%S%z".to_string(),
+                                                    date_start,
+                                                    date_finish,
+                                                    filter_type: self.date_filter_type.clone(),
                                                 },
                                             )
                                         }
@@ -117,12 +144,35 @@ impl App {
                     }
                     self.editing_mode = false;
                     self.edit_buffer.clear();
+                    self.date_start_buffer.clear();
+                    self.date_finish_buffer.clear();
+                    self.editing_date_field = DateField::None;
                 }
                 KeyCode::Char(c) => {
-                    self.edit_buffer.push(c);
+                    // В зависимости от типа фильтра и поля редактирования, добавляем символ в соответствующий буфер
+                    match self.filter_type {
+                        FilterType::Date => {
+                            match self.editing_date_field {
+                                DateField::Start => self.date_start_buffer.push(c),
+                                DateField::Finish => self.date_finish_buffer.push(c),
+                                DateField::None => self.edit_buffer.push(c), // Резервный случай
+                            }
+                        },
+                        _ => self.edit_buffer.push(c),
+                    }
                 }
                 KeyCode::Backspace => {
-                    self.edit_buffer.pop();
+                    // В зависимости от типа фильтра и поля редактирования, удаляем символ из соответствующего буфера
+                    match self.filter_type {
+                        FilterType::Date => {
+                            match self.editing_date_field {
+                                DateField::Start => { self.date_start_buffer.pop(); },
+                                DateField::Finish => { self.date_finish_buffer.pop(); },
+                                DateField::None => { self.edit_buffer.pop(); } // Резервный случай
+                            }
+                        },
+                        _ => { self.edit_buffer.pop(); },
+                    }
                 }
                 KeyCode::Esc => {
                     // Cancel editing
@@ -132,30 +182,73 @@ impl App {
                 KeyCode::Tab => {
                     if let (Some(_modal), Some(index)) = (&self.cur_modal, self.selected_index) {
                         if index < self.memory.filters.len() {
-                            let updated_filter = match self.filter_type {
-                                FilterType::Search => crate::common::enums::Filter::Regex(
-                                    crate::common::structs::RegexFilter {
-                                        pattern: self.edit_buffer.clone(),
-                                    },
-                                ),
-                                FilterType::Regex => crate::common::enums::Filter::Date(
-                                    crate::common::structs::DateFilter {
-                                        date_format: "".to_string(),
-                                        date_start: None,
-                                        date_finish: None,
-                                    },
-                                ),
-                                FilterType::Date => crate::common::enums::Filter::Search(
-                                    crate::common::structs::SearchFilter {
-                                        substr: self.edit_buffer.clone(),
-                                    },
-                                ),
-                            };
-                            let _ = self.memory.update_filter(index, updated_filter);
-                            self.filter_type = match self.filter_type {
-                                FilterType::Search => FilterType::Regex,
-                                FilterType::Regex => FilterType::Date,
-                                FilterType::Date => FilterType::Search,
+                            match self.filter_type {
+                                FilterType::Search => {
+                                    let updated_filter = crate::common::enums::Filter::Regex(
+                                        crate::common::structs::RegexFilter {
+                                            pattern: self.edit_buffer.clone(),
+                                        },
+                                    );
+                                    let _ = self.memory.update_filter(index, updated_filter);
+                                    self.filter_type = FilterType::Regex;
+                                },
+                                FilterType::Regex => {
+                                    let updated_filter = crate::common::enums::Filter::Date(
+                                        crate::common::structs::DateFilter {
+                                            date_format: "%Y-%m-%dT%H:%M:%S%z".to_string(),
+                                            date_start: None,
+                                            date_finish: None,
+                                            filter_type: crate::common::structs::DateFilterType::Between,
+                                        },
+                                    );
+                                    let _ = self.memory.update_filter(index, updated_filter);
+                                    self.filter_type = FilterType::Date;
+                                    self.date_filter_type = crate::common::structs::DateFilterType::Between;
+                                    self.date_start_buffer = String::new();
+                                    self.date_finish_buffer = String::new();
+                                    self.editing_date_field = DateField::Start;
+                                },
+                                FilterType::Date => {
+                                    // Для датового фильтра переключаемся между полями дат или между типами фильтров
+                                    match self.editing_date_field {
+                                        DateField::Start => {
+                                            self.editing_date_field = DateField::Finish;
+                                        },
+                                        DateField::Finish => {
+                                            // Если даты введены, сохраняем фильтр, иначе переключаемся к обычным фильтрам
+                                            let date_start = if !self.date_start_buffer.is_empty() {
+                                                // Попытка парсинга даты для проверки корректности
+                                                chrono::DateTime::parse_from_str(&self.date_start_buffer, "%Y-%m-%dT%H:%M:%S%z")
+                                                    .map(|dt| dt.with_timezone(&chrono::Utc))
+                                                    .ok()
+                                            } else {
+                                                None
+                                            };
+                                            
+                                            let date_finish = if !self.date_finish_buffer.is_empty() {
+                                                chrono::DateTime::parse_from_str(&self.date_finish_buffer, "%Y-%m-%dT%H:%M:%S%z")
+                                                    .map(|dt| dt.with_timezone(&chrono::Utc))
+                                                    .ok()
+                                            } else {
+                                                None
+                                            };
+                                            
+                                            let updated_filter = crate::common::enums::Filter::Date(
+                                                crate::common::structs::DateFilter {
+                                                    date_format: "%Y-%m-%dT%H:%M:%S%z".to_string(),
+                                                    date_start,
+                                                    date_finish,
+                                                    filter_type: self.date_filter_type.clone(),
+                                                },
+                                            );
+                                            let _ = self.memory.update_filter(index, updated_filter);
+                                            self.filter_type = FilterType::Search;
+                                        },
+                                        DateField::None => {
+                                            self.editing_date_field = DateField::Start;
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -294,33 +387,69 @@ impl App {
                         Modal::Filter => {
                             if index < self.memory.filters.len() {
                                 // Set edit buffer based on filter type
-                                self.edit_buffer = match &self.memory.filters[index] {
-                                    crate::common::enums::Filter::Search(f) => f.substr.clone(),
-                                    crate::common::enums::Filter::Regex(f) => f.pattern.clone(),
-                                    crate::common::enums::Filter::Date(_) => "".to_string(), // Date filters are more complex
-                                };
-                                self.editing_mode = true;
+                                match &self.memory.filters[index] {
+                                    crate::common::enums::Filter::Search(f) => {
+                                        self.edit_buffer = f.substr.clone();
+                                        self.filter_type = FilterType::Search;
+                                        self.editing_mode = true;
+                                    },
+                                    crate::common::enums::Filter::Regex(f) => {
+                                        self.edit_buffer = f.pattern.clone();
+                                        self.filter_type = FilterType::Regex;
+                                        self.editing_mode = true;
+                                    },
+                                    crate::common::enums::Filter::Date(f) => {
+                                        // Установим значения для датового фильтра
+                                        self.filter_type = FilterType::Date;
+                                        self.date_filter_type = f.filter_type.clone();
+                                        self.date_start_buffer = f.date_start
+                                            .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%z").to_string())
+                                            .unwrap_or_default();
+                                        self.date_finish_buffer = f.date_finish
+                                            .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%z").to_string())
+                                            .unwrap_or_default();
+                                        self.editing_date_field = DateField::Start;
+                                        self.editing_mode = true;
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
             KeyCode::Char('1') => {
-                // Switch to Search filter type
+                // Switch to Search filter type or Date filter type 'Before'
                 if self.cur_modal == Some(Modal::Filter) {
-                    self.filter_type = FilterType::Search;
+                    if self.filter_type == FilterType::Date {
+                        self.date_filter_type = crate::common::structs::DateFilterType::Before;
+                    } else {
+                        self.filter_type = FilterType::Search;
+                    }
                 }
             }
             KeyCode::Char('2') => {
-                // Switch to Regex filter type
+                // Switch to Regex filter type or Date filter type 'After'
                 if self.cur_modal == Some(Modal::Filter) {
-                    self.filter_type = FilterType::Regex;
+                    if self.filter_type == FilterType::Date {
+                        self.date_filter_type = crate::common::structs::DateFilterType::After;
+                    } else {
+                        self.filter_type = FilterType::Regex;
+                    }
                 }
             }
             KeyCode::Char('3') => {
-                // Switch to Date filter type
+                // Switch to Date filter type or Date filter type 'Between'
                 if self.cur_modal == Some(Modal::Filter) {
-                    self.filter_type = FilterType::Date;
+                    if self.filter_type == FilterType::Date {
+                        self.date_filter_type = crate::common::structs::DateFilterType::Between;
+                    } else {
+                        self.filter_type = FilterType::Date;
+                        // Установим начальные значения для датового фильтра
+                        self.date_filter_type = crate::common::structs::DateFilterType::Between;
+                        self.date_start_buffer = String::new();
+                        self.date_finish_buffer = String::new();
+                        self.editing_date_field = DateField::Start;
+                    }
                 }
             }
             _ => {}
@@ -477,6 +606,13 @@ impl Screen {
             ),
         }
     }
+}
+
+#[derive(PartialEq)]
+pub enum DateField {
+    Start,
+    Finish,
+    None,
 }
 
 #[derive(PartialEq)]

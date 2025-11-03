@@ -149,8 +149,22 @@ pub fn ui(frame: &mut Frame, app: &App) {
                             crate::common::enums::Filter::Regex(f) => {
                                 format!("{}: Regex '{}'", i, f.pattern)
                             }
-                            crate::common::enums::Filter::Date(_) => {
-                                format!("{}: Date filter", i) // Simplified representation
+                            crate::common::enums::Filter::Date(f) => {
+                                let date_filter_type_str = match &f.filter_type {
+                                    crate::common::structs::DateFilterType::Before => "Before",
+                                    crate::common::structs::DateFilterType::After => "After", 
+                                    crate::common::structs::DateFilterType::Between => "Between",
+                                };
+                                
+                                let start_str = f.date_start
+                                    .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
+                                    .unwrap_or_else(|| "N/A".to_string());
+                                
+                                let end_str = f.date_finish
+                                    .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
+                                    .unwrap_or_else(|| "N/A".to_string());
+                                
+                                format!("{}: Date ({}) {} - {}", i, date_filter_type_str, start_str, end_str)
                             }
                         };
 
@@ -173,17 +187,44 @@ pub fn ui(frame: &mut Frame, app: &App) {
 
         // Show editing interface or instructions
         let instructions = if app.editing_mode {
-            format!(
-                "Editing: {} (Press Enter to save, Esc to cancel)",
-                app.edit_buffer
-            )
+            if app.filter_type == app::FilterType::Date {
+                // Специальное отображение для датового фильтра
+                let field_name = match app.editing_date_field {
+                    app::DateField::Start => "Start date",
+                    app::DateField::Finish => "End date", 
+                    app::DateField::None => "General"
+                };
+                format!(
+                    "{}: {} (Tab: switch field, Enter: save, Esc: cancel)",
+                    field_name,
+                    match app.editing_date_field {
+                        app::DateField::Start => &app.date_start_buffer,
+                        app::DateField::Finish => &app.date_finish_buffer,
+                        app::DateField::None => &app.edit_buffer,
+                    }
+                )
+            } else {
+                format!(
+                    "Editing: {} (Press Enter to save, Esc to cancel)",
+                    app.edit_buffer
+                )
+            }
         } else {
             match modal {
                 app::Modal::Path => "Use arrow keys to select, Enter to edit, 'a' to add, 'd' to delete, 'q' to quit".to_string(),
-                app::Modal::Filter => format!(
-                    "Use arrow keys to select, Enter to edit, 'a' to add, 'd' to delete, 'q' to quit | Filter type: 1-Search, 2-Regex, 3-Date (current: {:?})", 
-                    app.filter_type
-                ),
+                app::Modal::Filter => {
+                    if app.filter_type == app::FilterType::Date {
+                        format!(
+                            "Use arrow keys to select, Enter to edit, 'a' to add, 'd' to delete, 'q' to quit | Date filter type: 1-Before, 2-After, 3-Between (current: {:?})", 
+                            app.date_filter_type
+                        )
+                    } else {
+                        format!(
+                            "Use arrow keys to select, Enter to edit, 'a' to add, 'd' to delete, 'q' to quit | Filter type: 1-Search, 2-Regex, 3-Date (current: {:?})", 
+                            app.filter_type
+                        )
+                    }
+                }
             }
         };
 
